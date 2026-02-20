@@ -8,13 +8,25 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'https://nf-document-frontend.onrender.com',  // Your frontend URL (will get after deploy)
-    process.env.FRONTEND_URL
-  ],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'https://nf-document-frontend.onrender.com',
+      process.env.FRONTEND_URL
+    ];
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all for now
+    }
+  },
   credentials: true
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -24,6 +36,22 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/folders', require('./routes/folders'));
 app.use('/api/files', require('./routes/files'));
 
+// Root route
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'NF Document Repository API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      health: '/api/health',
+      auth: '/api/auth',
+      users: '/api/users',
+      folders: '/api/folders',
+      files: '/api/files'
+    }
+  });
+});
+
 // Health check route
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -32,39 +60,44 @@ app.get('/api/health', (req, res) => {
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'development',
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    timestamp: new Date()
+    timestamp: new Date().toISOString()
   });
 });
 
-// Root route
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'NF Document Repository API',
-    version: '1.0.0',
-    status: 'running'
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Route not found',
+    path: req.path
   });
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('Error:', err.message);
   res.status(500).json({ 
     success: false, 
-    message: err.message || 'Something went wrong!' 
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
-// Database connection (FIXED - No deprecated options)
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => {
+// Database connection
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI);
     console.log('✅ MongoDB Connected Successfully');
-    console.log('Database:', mongoose.connection.name);
-    initializeDefaultData();
-  })
-  .catch(err => {
+    console.log('📦 Database:', mongoose.connection.name);
+    
+    // Initialize default data after connection
+    await initializeDefaultData();
+  } catch (err) {
     console.error('❌ MongoDB Connection Error:', err.message);
-    process.exit(1);
-  });
+    // Don't exit, keep trying
+    setTimeout(connectDB, 5000);
+  }
+};
 
 // Initialize default admin user if not exists
 async function initializeDefaultData() {
@@ -85,7 +118,7 @@ async function initializeDefaultData() {
         status: 'active'
       });
       await admin.save();
-      console.log('✅ Default admin user created (username: admin, password: admin123)');
+      console.log('✅ Default admin created (username: admin, password: admin123)');
     }
 
     // Create default user
@@ -102,13 +135,16 @@ async function initializeDefaultData() {
         status: 'active'
       });
       await user.save();
-      console.log('✅ Default regular user created (username: user1, password: user123)');
+      console.log('✅ Default user created (username: user1, password: user123)');
     }
 
   } catch (error) {
-    console.error('❌ Error initializing default data:', error.message);
+    console.error('⚠️ Error initializing default data:', error.message);
   }
 }
+
+// Connect to database
+connectDB();
 
 // Start server
 const PORT = process.env.PORT || 5000;
@@ -121,29 +157,41 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 ║   Server running on port ${PORT}                           ║
 ║   Environment: ${process.env.NODE_ENV || 'development'}                            ║
 ║                                                            ║
-║   API Endpoints:                                           ║
-║   - Auth:    http://localhost:${PORT}/api/auth                ║
-║   - Users:   http://localhost:${PORT}/api/users               ║
-║   - Folders: http://localhost:${PORT}/api/folders             ║
-║   - Files:   http://localhost:${PORT}/api/files               ║
-║                                                            ║
-║   Health Check: http://localhost:${PORT}/api/health           ║
+║   Ready to accept connections!                             ║
 ║                                                            ║
 ╚════════════════════════════════════════════════════════════╝
   `);
 });
 
-// Handle unhandled promise rejections
+// Keep alive - prevent idle shutdown
+setInterval(() => {
+  console.log('💓 Heartbeat - Server alive');
+}, 60000); // Every minute
+
+// Handle errors gracefully
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err.message);
+  // Don't exit - log and continue
+});
+
 process.on('unhandledRejection', (err) => {
-  console.error('❌ Unhandled Promise Rejection:', err);
-  server.close(() => process.exit(1));
+  console.error('❌ Unhandled Promise Rejection:', err.message);
+  // Don't exit - log and continue
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM received, shutting down gracefully...');
+  console.log('👋 SIGTERM received');
   server.close(() => {
+    console.log('✅ Server closed');
     mongoose.connection.close();
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('👋 SIGINT received');
+  server.close(() => {
+    console.log('✅ Server closed');
     process.exit(0);
   });
 });

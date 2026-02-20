@@ -12,7 +12,7 @@ const fileSchema = new mongoose.Schema({
   referenceNumber: {
     type: String,
     required: true,
-    unique: true
+    unique: true  // This already creates an index, no need for separate index
   },
   size: {
     type: Number,
@@ -79,8 +79,8 @@ const fileSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Index for faster searches
-fileSchema.index({ referenceNumber: 1 });
+// Indexes for faster searches
+// REMOVED: fileSchema.index({ referenceNumber: 1 }); // Already indexed via unique: true
 fileSchema.index({ uploadedBy: 1 });
 fileSchema.index({ folderId: 1 });
 fileSchema.index({ name: 'text', originalName: 'text' });
