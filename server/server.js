@@ -10,7 +10,8 @@ const app = express();
 app.use(cors({
   origin: [
     'http://localhost:5173',
-    'https://nf-document-frontend.onrender.com'
+    'https://nf-document-frontend.onrender.com',  // Your frontend URL (will get after deploy)
+    process.env.FRONTEND_URL
   ],
   credentials: true
 }));
