@@ -10,7 +10,7 @@ const app = express();
 app.use(cors({
   origin: [
     'http://localhost:5173',
-    'https://nf-document-frontend.onrender.com'  // Your frontend URL
+    'https://nf-document-frontend.onrender.com'
   ],
   credentials: true
 }));
@@ -29,7 +29,18 @@ app.get('/api/health', (req, res) => {
     success: true, 
     message: 'Server is running',
     version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     timestamp: new Date()
+  });
+});
+
+// Root route
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'NF Document Repository API',
+    version: '1.0.0',
+    status: 'running'
   });
 });
 
@@ -42,19 +53,17 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Database connection
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => {
-  console.log('✅ MongoDB Connected Successfully');
-  initializeDefaultData();
-})
-.catch(err => {
-  console.error('❌ MongoDB Connection Error:', err);
-  process.exit(1);
-});
+// Database connection (FIXED - No deprecated options)
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => {
+    console.log('✅ MongoDB Connected Successfully');
+    console.log('Database:', mongoose.connection.name);
+    initializeDefaultData();
+  })
+  .catch(err => {
+    console.error('❌ MongoDB Connection Error:', err.message);
+    process.exit(1);
+  });
 
 // Initialize default admin user if not exists
 async function initializeDefaultData() {
@@ -96,13 +105,13 @@ async function initializeDefaultData() {
     }
 
   } catch (error) {
-    console.error('Error initializing default data:', error);
+    console.error('❌ Error initializing default data:', error.message);
   }
 }
 
 // Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║                                                            ║
@@ -125,7 +134,17 @@ app.listen(PORT, () => {
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
-  console.error('Unhandled Promise Rejection:', err);
-  // Close server & exit process
+  console.error('❌ Unhandled Promise Rejection:', err);
   server.close(() => process.exit(1));
 });
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('👋 SIGTERM received, shutting down gracefully...');
+  server.close(() => {
+    mongoose.connection.close();
+    process.exit(0);
+  });
+});
+
+module.exports = app;
