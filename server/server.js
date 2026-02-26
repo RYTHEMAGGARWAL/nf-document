@@ -15,6 +15,7 @@ app.use(cors({
     const allowedOrigins = [
       'http://localhost:5173',
       'https://nf-document-frontend.onrender.com',
+       'https://nf-document.vercel.app',
       process.env.FRONTEND_URL
     ];
     
